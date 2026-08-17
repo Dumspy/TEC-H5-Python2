@@ -170,14 +170,14 @@ Contains three extraction implementations:
 - Python `wget`
 - `subprocess` with external `curl`
 
-The main pipeline selects `requests` because it is cross-platform and provides direct control over HTTPS certificate verification, streaming, timeouts, retries, and response errors.
+The main pipeline selects `requests` because it is cross-platform and provides direct control over HTTPS certificate verification, streaming, timeouts, and response errors.
 
 All download methods:
 
 - Require an HTTPS URL.
 - Derive the destination filename from the URL.
 - Write to a temporary file first.
-- Use bounded retry handling.
+- Use timeouts and temporary files so failed downloads do not replace valid input.
 - Replace the destination only after a successful download.
 
 The `requests` method uses `stream=True` and writes small chunks instead of loading the entire response into memory. Certificate verification remains enabled.
@@ -241,7 +241,7 @@ Coordinates the complete Extract -> Transform -> Load -> Visualize process and s
 - HTTPS and default TLS certificate verification protect the data during transport.
 - Downloads use timeouts so an unstable connection cannot hang indefinitely.
 - Downloads are streamed in chunks.
-- Bounded retries handle temporary network failures.
+- Timeouts handle stalled network connections.
 - Temporary files prevent incomplete downloads from replacing valid data.
 - Filenames are derived safely from the URL basename.
 - The curl implementation uses `shell=False` and separate command arguments.
@@ -254,7 +254,7 @@ Coordinates the complete Extract -> Transform -> Load -> Visualize process and s
 |---|---|
 | ETL pipeline | `main.py` coordinates Extract, Transform, Load, and visualization stages. |
 | Reusable Python modules | ETL responsibilities are separated into the main modules, with shared infrastructure in `src/lib/`. |
-| Secure internet extraction | HTTPS, certificate verification, streaming, timeouts, retries, and safe subprocess usage. |
+| Secure internet extraction | HTTPS, certificate verification, streaming, timeouts, temporary files, and safe subprocess usage. |
 | Data processing | PySpark DataFrames and filtering are used for transformation. |
 | Cryptographic protection | HTTPS/TLS protects the data while it is transported from GitHub. |
 | SQL and databases | Python executes SQL against MySQL and Spark loads the DataFrame through JDBC. |

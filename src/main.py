@@ -22,8 +22,8 @@ from .visualization import (
 def main() -> None:
     """Run Extract -> Transform -> Load -> Visualize."""
 
-    # requests is selected for cross-platform HTTPS, streaming, timeouts,
-    # retries, and avoiding shell execution.
+    # requests is selected for cross-platform HTTPS, streaming, timeouts, and
+    # avoiding shell execution.
     input_path = extract(
         method="requests",
         url=IRIS_DATASET.source_url,
