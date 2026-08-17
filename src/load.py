@@ -1,34 +1,33 @@
-"""Load transformed data into the local CSV output and MySQL table."""
+"""Load transformed data into CSV and MySQL."""
 
 from __future__ import annotations
 
 import os
 import re
 import shutil
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from typing import cast
 
 import mysql.connector
+from mysql.connector.connection import MySQLConnection
 import pandas as pd
 from dotenv import load_dotenv
 from pyspark.sql import DataFrame
 
+from .constants import IRIS_COLUMNS
+
 DEFAULT_OUTPUT_PATH = Path("Output_dir/transform_iris.csv")
 DEFAULT_TABLE = "iris_setosa"
-EXPECTED_COLUMNS = (
-    "sepal_length",
-    "sepal_width",
-    "petal_length",
-    "petal_width",
-    "species",
-)
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 @dataclass(frozen=True)
 class DatabaseConfig:
-    """Connection settings loaded from the local .env file."""
+    """MySQL connection settings."""
 
     host: str
     port: int
@@ -54,7 +53,7 @@ class DatabaseConfig:
 
 
 def get_database_config() -> DatabaseConfig:
-    """Read the simple local database configuration from .env."""
+    """Read database settings from .env."""
 
     load_dotenv()
     return DatabaseConfig(
@@ -67,19 +66,39 @@ def get_database_config() -> DatabaseConfig:
     )
 
 
-def _validated_table_name(table: str) -> str:
-    """Validate the configured SQL identifier before interpolating it."""
+def _table_name(name: str, quoted: bool = False) -> str:
+    if not _IDENTIFIER_PATTERN.fullmatch(name):
+        raise ValueError(f"Invalid MySQL table name: {name!r}")
+    return f"`{name}`" if quoted else name
 
-    if not _IDENTIFIER_PATTERN.fullmatch(table):
-        raise ValueError(f"Invalid MySQL table name: {table!r}")
-    return table
+
+@contextmanager
+def _connection(config: DatabaseConfig) -> Generator[MySQLConnection, None, None]:
+    connection = cast(
+        MySQLConnection,
+        mysql.connector.connect(
+            host=config.host,
+            port=config.port,
+            database=config.database,
+            user=config.user,
+            password=config.password,
+        ),
+    )
+    try:
+        yield connection
+    finally:
+        connection.close()
+
+
+def _select_columns(dataframe: DataFrame) -> DataFrame:
+    return dataframe.select(*IRIS_COLUMNS)
 
 
 def write_transformed_csv(
     dataframe: DataFrame,
     output_path: Path = DEFAULT_OUTPUT_PATH,
 ) -> Path:
-    """Write a single header-containing CSV file and replace old output."""
+    """Write one header-containing CSV file and replace old output."""
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,13 +108,12 @@ def write_transformed_csv(
     shutil.rmtree(temporary_dir, ignore_errors=True)
     try:
         (
-            dataframe.select(*EXPECTED_COLUMNS)
+            _select_columns(dataframe)
             .coalesce(1)
             .write.mode("overwrite")
             .option("header", "true")
             .csv(str(temporary_dir))
         )
-
         part_files = sorted(temporary_dir.glob("part-*.csv"))
         if len(part_files) != 1:
             raise RuntimeError(
@@ -121,10 +139,10 @@ def write_transformed_csv(
 
 
 def _ensure_table(config: DatabaseConfig) -> None:
-    """Create the destination table and remove rows from the previous run."""
+    """Create the table if needed and clear the previous data."""
 
-    table = f"`{_validated_table_name(config.table)}`"
-    create_table_sql = f"""
+    table = _table_name(config.table, quoted=True)
+    create_sql = f"""
         CREATE TABLE IF NOT EXISTS {table} (
             sepal_length DOUBLE NOT NULL,
             sepal_width DOUBLE NOT NULL,
@@ -133,58 +151,15 @@ def _ensure_table(config: DatabaseConfig) -> None:
             species VARCHAR(50) NOT NULL
         )
     """
-    truncate_table_sql = f"TRUNCATE TABLE {table}"
 
-    connection = mysql.connector.connect(
-        host=config.host,
-        port=config.port,
-        database=config.database,
-        user=config.user,
-        password=config.password,
-    )
-    try:
+    with _connection(config) as connection:
         cursor = connection.cursor()
         try:
-            cursor.execute(create_table_sql)
-            cursor.execute(truncate_table_sql)
+            cursor.execute(create_sql)
+            cursor.execute(f"TRUNCATE TABLE {table}")
             connection.commit()
         finally:
             cursor.close()
-    finally:
-        connection.close()
-
-
-def query_transformed_data(
-    config: DatabaseConfig | None = None,
-) -> pd.DataFrame:
-    """Read the transformed rows from MySQL into a pandas DataFrame."""
-
-    config = config or get_database_config()
-    table = f"`{_validated_table_name(config.table)}`"
-    query = f"""
-        SELECT sepal_length, sepal_width, petal_length, petal_width, species
-        FROM {table}
-        ORDER BY sepal_length, sepal_width, petal_length, petal_width
-    """
-
-    connection = mysql.connector.connect(
-        host=config.host,
-        port=config.port,
-        database=config.database,
-        user=config.user,
-        password=config.password,
-    )
-    try:
-        cursor = connection.cursor()
-        try:
-            cursor.execute(query)
-            rows = cursor.fetchall()
-        finally:
-            cursor.close()
-    finally:
-        connection.close()
-
-    return pd.DataFrame.from_records(rows, columns=EXPECTED_COLUMNS)
 
 
 def write_transformed_mysql(
@@ -195,15 +170,34 @@ def write_transformed_mysql(
 
     config = config or get_database_config()
     _ensure_table(config)
-
-    table = _validated_table_name(config.table)
-    (
-        dataframe.select(*EXPECTED_COLUMNS)
-        .write.mode("append")
-        .jdbc(
-            url=config.jdbc_url,
-            table=table,
-            properties=config.jdbc_properties,
-        )
+    _select_columns(dataframe).write.mode("append").jdbc(
+        url=config.jdbc_url,
+        table=_table_name(config.table),
+        properties=config.jdbc_properties,
     )
     return config.table
+
+
+def query_transformed_data(
+    config: DatabaseConfig | None = None,
+) -> pd.DataFrame:
+    """Read the transformed rows from MySQL into pandas."""
+
+    config = config or get_database_config()
+    table = _table_name(config.table, quoted=True)
+    columns = ", ".join(IRIS_COLUMNS)
+    query = f"""
+        SELECT {columns}
+        FROM {table}
+        ORDER BY sepal_length, sepal_width, petal_length, petal_width
+    """
+
+    with _connection(config) as connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(query)
+            rows = cursor.fetchall()
+        finally:
+            cursor.close()
+
+    return pd.DataFrame.from_records(rows, columns=IRIS_COLUMNS)

@@ -166,6 +166,10 @@ The `requests` method uses `stream=True` and writes small chunks instead of load
 
 The `curl` implementation uses an argument list and `shell=False`. It does not construct a shell command string, which prevents the URL from being interpreted as shell syntax and reduces command-line injection risk.
 
+### `src/constants.py`
+
+Stores the shared Iris column names and species value used by the ETL modules.
+
 ### `src/transform.py`
 
 Uses a local PySpark session with an explicit schema:

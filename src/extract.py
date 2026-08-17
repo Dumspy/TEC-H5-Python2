@@ -13,8 +13,10 @@ from urllib.parse import SplitResult, unquote, urlsplit
 import requests
 import wget
 
+from .constants import IRIS_COLUMNS
+
 SOURCE_URL = "https://raw.githubusercontent.com/jbrownlee/Datasets/master/iris.csv"
-CSV_HEADERS = "sepal_length,sepal_width,petal_length,petal_width,species"
+CSV_HEADERS = ",".join(IRIS_COLUMNS)
 DEFAULT_INPUT_DIR = Path("Input_dir")
 CHUNK_SIZE = 64 * 1024
 MAX_ATTEMPTS = 3

@@ -1,4 +1,4 @@
-"""Entry point for the Iris ETL pipeline."""
+"""Run the Iris ETL pipeline."""
 
 from __future__ import annotations
 
@@ -20,41 +20,31 @@ from .visualization import (
 
 INPUT_DIR = Path("Input_dir")
 OUTPUT_DIR = Path("Output_dir")
+PLOTS_DIR = OUTPUT_DIR / "plots"
 
 
 def main() -> None:
     """Run Extract -> Transform -> Load -> Visualize."""
 
-    # requests is selected because it is cross-platform and gives direct
-    # control over HTTPS certificate verification, streaming, timeouts, and
-    # retries without invoking a shell.  wget has less direct control over
-    # these behaviors, while an unsafe curl implementation could expose the
-    # application to command-line injection.  Our curl implementation avoids
-    # that risk with shell=False and a list of arguments.
+    # requests is selected for cross-platform HTTPS, streaming, timeouts,
+    # retries, and avoiding shell execution.
     input_path = extract(method="requests", destination_dir=INPUT_DIR)
     database_config = get_database_config()
     spark = create_spark_session()
 
     try:
-        transformed_dataframe = transform_iris(spark, input_path)
+        transformed = transform_iris(spark, input_path)
         transformed_csv_path = write_transformed_csv(
-            transformed_dataframe,
+            transformed,
             output_path=OUTPUT_DIR / "transform_iris.csv",
         )
-        table_name = write_transformed_mysql(transformed_dataframe, database_config)
+        table_name = write_transformed_mysql(transformed, database_config)
 
-        # Visualizations deliberately use data queried from MySQL rather than
-        # the CSV or the pre-load Spark DataFrame.
-        database_dataframe = query_transformed_data(database_config)
-        scatter_plot_path = create_scatter_plot(
-            database_dataframe, OUTPUT_DIR / "plots"
-        )
-        histogram_path = create_petal_width_histogram(
-            database_dataframe, OUTPUT_DIR / "plots"
-        )
-        boxplot_path = create_measurement_boxplots(
-            database_dataframe, OUTPUT_DIR / "plots"
-        )
+        # Plot data comes from SQL queries against MySQL.
+        database_data = query_transformed_data(database_config)
+        scatter_plot_path = create_scatter_plot(database_data, PLOTS_DIR)
+        histogram_path = create_petal_width_histogram(database_data, PLOTS_DIR)
+        boxplot_path = create_measurement_boxplots(database_data, PLOTS_DIR)
 
         print(f"Transformed CSV written to: {transformed_csv_path}")
         print(f"MySQL table populated: {table_name}")

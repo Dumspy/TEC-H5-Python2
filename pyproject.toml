@@ -14,3 +14,8 @@ dependencies = [
 
 [tool.basedpyright]
 reportUnusedCallResult = false
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39.10",
+]

@@ -1,4 +1,4 @@
-"""Generate plots from data retrieved from MySQL."""
+"""Create plots from data read from MySQL."""
 
 from __future__ import annotations
 
@@ -6,24 +6,26 @@ from pathlib import Path
 
 import matplotlib
 
-# Use a non-interactive backend so the pipeline works consistently from a
-# terminal and can save plots on systems without a graphical display.
-matplotlib.use("Agg")
+matplotlib.use("Agg")  # Save plots consistently in terminal environments.
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from .constants import MEASUREMENT_COLUMNS
+
 DEFAULT_PLOTS_DIR = Path("Output_dir/plots")
-MEASUREMENT_COLUMNS = (
-    "sepal_length",
-    "sepal_width",
-    "petal_length",
-    "petal_width",
-)
 
 
-def _prepare_output(directory: Path, filename: str) -> Path:
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory / filename
+def _save_figure(
+    figure: plt.Figure,
+    output_dir: Path,
+    filename: str,
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / filename
+    figure.tight_layout()
+    figure.savefig(output_path, dpi=150)
+    plt.close(figure)
+    return output_path
 
 
 def create_scatter_plot(
@@ -32,7 +34,6 @@ def create_scatter_plot(
 ) -> Path:
     """Create a sepal-length/petal-length scatter plot."""
 
-    output_path = _prepare_output(output_dir, "scatter_plot.png")
     figure, axis = plt.subplots(figsize=(8, 6))
     axis.scatter(
         dataframe["sepal_length"],
@@ -46,10 +47,7 @@ def create_scatter_plot(
     axis.set_ylabel("Petal length")
     axis.set_title("Iris-setosa: Sepal Length vs Petal Length")
     axis.grid(alpha=0.25)
-    figure.tight_layout()
-    figure.savefig(output_path, dpi=150)
-    plt.close(figure)
-    return output_path
+    return _save_figure(figure, output_dir, "scatter_plot.png")
 
 
 def create_petal_width_histogram(
@@ -58,7 +56,6 @@ def create_petal_width_histogram(
 ) -> Path:
     """Create a ten-bin histogram for petal width."""
 
-    output_path = _prepare_output(output_dir, "petal_width_histogram.png")
     figure, axis = plt.subplots(figsize=(8, 6))
     axis.hist(
         dataframe["petal_width"],
@@ -70,31 +67,20 @@ def create_petal_width_histogram(
     axis.set_ylabel("Number of observations")
     axis.set_title("Iris-setosa: Distribution of Petal Width")
     axis.grid(axis="y", alpha=0.25)
-    figure.tight_layout()
-    figure.savefig(output_path, dpi=150)
-    plt.close(figure)
-    return output_path
+    return _save_figure(figure, output_dir, "petal_width_histogram.png")
 
 
 def create_measurement_boxplots(
     dataframe: pd.DataFrame,
     output_dir: Path = DEFAULT_PLOTS_DIR,
 ) -> Path:
-    """Create a 2x2 layout of boxplots for all four measurements."""
+    """Create one boxplot with the four measurements sharing a single axis."""
 
-    output_path = _prepare_output(output_dir, "measurement_boxplots.png")
-    figure, axes = plt.subplots(2, 2, figsize=(10, 8))
-
-    for axis, column in zip(axes.flat, MEASUREMENT_COLUMNS):
-        axis.boxplot(dataframe[column].dropna())
-        axis.set_xticks([1])
-        axis.set_xticklabels([column])
-        axis.set_ylabel("Measurement")
-        axis.set_title(column.replace("_", " ").title())
-        axis.grid(axis="y", alpha=0.25)
-
-    figure.suptitle("Iris-setosa: Measurement Distributions", fontsize=14)
-    figure.tight_layout()
-    figure.savefig(output_path, dpi=150)
-    plt.close(figure)
-    return output_path
+    figure, axis = plt.subplots(figsize=(10, 6))
+    data = [dataframe[column].dropna() for column in MEASUREMENT_COLUMNS]
+    labels = [column.replace("_", " ").title() for column in MEASUREMENT_COLUMNS]
+    axis.boxplot(data, tick_labels=labels)
+    axis.set_ylabel("Measurement")
+    axis.set_title("Iris-setosa: Measurement Distributions")
+    axis.grid(axis="y", alpha=0.25)
+    return _save_figure(figure, output_dir, "measurement_boxplots.png")
