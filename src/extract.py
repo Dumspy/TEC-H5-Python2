@@ -1,9 +1,4 @@
-"""Download the source dataset safely into the local input directory.
-
-The module exposes three extraction implementations as required by the
-assignment.  ``requests`` is selected by the application because it gives us
-more direct control over TLS verification, streaming, timeouts, and retries.
-"""
+"""Download the Iris CSV with one of three extraction methods."""
 
 from __future__ import annotations
 
@@ -13,7 +8,7 @@ import time
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Callable
-from urllib.parse import unquote, urlsplit
+from urllib.parse import SplitResult, unquote, urlsplit
 
 import requests
 import wget
@@ -21,42 +16,27 @@ import wget
 SOURCE_URL = "https://raw.githubusercontent.com/jbrownlee/Datasets/master/iris.csv"
 CSV_HEADERS = "sepal_length,sepal_width,petal_length,petal_width,species"
 DEFAULT_INPUT_DIR = Path("Input_dir")
-DOWNLOAD_CHUNK_SIZE = 64 * 1024
+CHUNK_SIZE = 64 * 1024
 MAX_ATTEMPTS = 3
 
 
-def _validate_url(url: str) -> str:
-    """Validate the download URL before giving it to any HTTP client.
-
-    HTTPS is required so that the transport is protected by TLS.  The URL is
-    also parsed instead of being inserted into a shell command or a path.
-    """
-
+def _validate_url(url: str) -> SplitResult:
     parsed = urlsplit(url)
     if parsed.scheme.lower() != "https" or not parsed.netloc:
         raise ValueError("The dataset URL must be a valid HTTPS URL")
-    return url
+    return parsed
 
 
-def _filename_from_url(url: str) -> str:
-    """Return a safe filename derived from the URL path."""
-
-    parsed = urlsplit(_validate_url(url))
+def _destination_path(url: str, directory: Path) -> Path:
+    parsed = _validate_url(url)
     filename = Path(unquote(parsed.path)).name
     if not filename or filename in {".", ".."}:
         raise ValueError("The dataset URL does not contain a filename")
-    return filename
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / filename
 
 
-def _destination_path(url: str, destination_dir: Path) -> Path:
-    destination_dir.mkdir(parents=True, exist_ok=True)
-    # Only the basename is used.  A remote path cannot escape destination_dir.
-    return destination_dir / _filename_from_url(url)
-
-
-def _write_headers_and_replace(raw_path: Path, destination: Path) -> Path:
-    """Prepend the known Iris headers and atomically replace the destination."""
-
+def _finalize_download(raw_path: Path, destination: Path) -> Path:
     if not raw_path.is_file() or raw_path.stat().st_size == 0:
         raise RuntimeError("The downloaded dataset is empty")
 
@@ -68,24 +48,23 @@ def _write_headers_and_replace(raw_path: Path, destination: Path) -> Path:
         delete=False,
     ) as output:
         output_path = Path(output.name)
-        output.write(f"{CSV_HEADERS}\n".encode("utf-8"))
+        output.write(f"{CSV_HEADERS}\n".encode())
         with raw_path.open("rb") as source:
-            shutil.copyfileobj(source, output, length=DOWNLOAD_CHUNK_SIZE)
+            shutil.copyfileobj(source, output, length=CHUNK_SIZE)
 
     raw_path.unlink(missing_ok=True)
     output_path.replace(destination)
     return destination
 
 
-def _download_with_retries(
+def _run_download(
     download_once: Callable[[Path], None],
     destination: Path,
-    method_name: str,
+    method: str,
 ) -> Path:
-    """Run a downloader with bounded retries and safe finalization."""
+    """Retry a downloader and replace the destination only on success."""
 
     last_error: Exception | None = None
-
     for attempt in range(1, MAX_ATTEMPTS + 1):
         raw_path: Path | None = None
         try:
@@ -98,96 +77,69 @@ def _download_with_retries(
                 raw_path = Path(temporary.name)
 
             download_once(raw_path)
-            return _write_headers_and_replace(raw_path, destination)
-        except Exception as error:  # Re-raise a useful error after final retry.
+            return _finalize_download(raw_path, destination)
+        except Exception as error:
             last_error = error
             if raw_path is not None:
                 raw_path.unlink(missing_ok=True)
             if attempt < MAX_ATTEMPTS:
                 time.sleep(attempt)
 
-    raise RuntimeError(
-        f"{method_name} failed after {MAX_ATTEMPTS} attempts"
-    ) from last_error
+    raise RuntimeError(f"{method} failed after {MAX_ATTEMPTS} attempts") from last_error
 
 
 def download_with_requests(
     url: str = SOURCE_URL,
     destination_dir: Path = DEFAULT_INPUT_DIR,
 ) -> Path:
-    """Download the dataset with streaming HTTPS requests.
+    """Download with streaming requests, TLS verification, and timeouts."""
 
-    ``stream=True`` prevents the entire response from being held in memory.
-    Requests verifies the HTTPS certificate by default; deliberately do not
-    use ``verify=False``.  A connect/read timeout and bounded retries handle
-    unstable network connections.  The response is first written to a
-    temporary file, so an interrupted transfer cannot replace a valid file.
-    """
-
-    _validate_url(url)
     destination = _destination_path(url, destination_dir)
 
     def download_once(raw_path: Path) -> None:
-        with requests.get(
-            url,
-            stream=True,
-            timeout=(10, 60),
-            allow_redirects=True,
-        ) as response:
+        # stream, timeout, and default certificate verification protect the
+        # transfer and keep an unstable connection from hanging indefinitely.
+        with requests.get(url, stream=True, timeout=(10, 60)) as response:
             response.raise_for_status()
             if urlsplit(response.url).scheme.lower() != "https":
                 raise RuntimeError("The final redirected URL is not HTTPS")
             with raw_path.open("wb") as output:
-                for chunk in response.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+                for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
                     if chunk:
                         output.write(chunk)
 
-    return _download_with_retries(download_once, destination, "requests")
+    return _run_download(download_once, destination, "requests")
 
 
 def download_with_wget(
     url: str = SOURCE_URL,
     destination_dir: Path = DEFAULT_INPUT_DIR,
 ) -> Path:
-    """Download the dataset with the Python ``wget`` package.
+    """Download with the Python wget package."""
 
-    The URL is validated and the output is written to a temporary path.  The
-    package has less control over streaming and timeout configuration than
-    requests, so bounded retries and atomic finalization are especially
-    important here.  TLS verification is left enabled by the underlying
-    Python URL implementation.
-    """
-
-    _validate_url(url)
     destination = _destination_path(url, destination_dir)
 
     def download_once(raw_path: Path) -> None:
+        # URL validation, retries, and temporary-file finalization are shared
+        # with the other methods; wget exposes less timeout control.
         wget.download(url, out=str(raw_path), bar=None)
-        print()  # wget's progress output does not end with a newline.
 
-    return _download_with_retries(download_once, destination, "wget")
+    return _run_download(download_once, destination, "wget")
 
 
 def download_with_curl(
     url: str = SOURCE_URL,
     destination_dir: Path = DEFAULT_INPUT_DIR,
 ) -> Path:
-    """Download the dataset by safely executing the external curl program.
+    """Download with curl without invoking a shell."""
 
-    ``subprocess.run`` receives a list of arguments and uses ``shell=False``.
-    Therefore the URL is not interpreted as shell syntax, which prevents
-    command-line injection.  curl is restricted to HTTPS, keeps certificate
-    verification enabled, retries transient failures, and writes to a
-    temporary file before the final CSV is replaced.
-    """
-
-    _validate_url(url)
     destination = _destination_path(url, destination_dir)
     curl_path = shutil.which("curl")
     if curl_path is None:
         raise RuntimeError("curl is not available on PATH")
 
     def download_once(raw_path: Path) -> None:
+        # Separate arguments and shell=False prevent command-line injection.
         command = [
             curl_path,
             "--fail",
@@ -210,14 +162,9 @@ def download_with_curl(
             str(raw_path),
             url,
         ]
-        subprocess.run(
-            command,
-            check=True,
-            shell=False,
-            timeout=180,
-        )
+        subprocess.run(command, check=True, shell=False, timeout=180)
 
-    return _download_with_retries(download_once, destination, "curl")
+    return _run_download(download_once, destination, "curl")
 
 
 def extract(
@@ -225,7 +172,7 @@ def extract(
     url: str = SOURCE_URL,
     destination_dir: Path = DEFAULT_INPUT_DIR,
 ) -> Path:
-    """Run one of the available extraction implementations."""
+    """Run the selected extraction method."""
 
     methods = {
         "requests": download_with_requests,
