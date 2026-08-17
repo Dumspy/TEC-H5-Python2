@@ -15,7 +15,7 @@ import pandas as pd
 from dotenv import load_dotenv
 from pyspark.sql import DataFrame
 
-from ..constants import IRIS_COLUMNS
+from ..dataset import IRIS_DATASET
 
 DEFAULT_TABLE = "iris_setosa"
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -116,7 +116,7 @@ def write_dataframe(
 
     config = config or get_database_config()
     _ensure_table(config)
-    dataframe.select(*IRIS_COLUMNS).write.mode("append").jdbc(
+    dataframe.select(*IRIS_DATASET.columns).write.mode("append").jdbc(
         url=config.jdbc_url,
         table=_table_name(config.table),
         properties=config.jdbc_properties,
@@ -131,7 +131,7 @@ def query_dataframe(
 
     config = config or get_database_config()
     table = _table_name(config.table, quoted=True)
-    columns = ", ".join(IRIS_COLUMNS)
+    columns = ", ".join(IRIS_DATASET.columns)
     query = f"""
         SELECT {columns}
         FROM {table}
@@ -146,4 +146,4 @@ def query_dataframe(
         finally:
             cursor.close()
 
-    return pd.DataFrame.from_records(rows, columns=IRIS_COLUMNS)
+    return pd.DataFrame.from_records(rows, columns=IRIS_DATASET.columns)

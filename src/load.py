@@ -7,13 +7,14 @@ from pathlib import Path
 import pandas as pd
 from pyspark.sql import DataFrame
 
+from .dataset import IRIS_DATASET
 from .lib.mysql import DatabaseConfig, query_dataframe, write_dataframe
-from .lib.spark_io import DEFAULT_OUTPUT_PATH, write_single_csv
+from .lib.spark_io import write_single_csv
 
 
 def write_transformed_csv(
     dataframe: DataFrame,
-    output_path: Path = DEFAULT_OUTPUT_PATH,
+    output_path: Path = IRIS_DATASET.transformed_output_path,
 ) -> Path:
     """Write the transformed DataFrame to one CSV file."""
 

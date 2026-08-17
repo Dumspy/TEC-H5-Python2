@@ -37,7 +37,7 @@ src/
 ├── transform.py
 ├── load.py
 ├── visualization.py
-├── constants.py
+├── dataset.py
 └── lib/
     ├── __init__.py
     ├── mysql.py
@@ -184,9 +184,9 @@ The `requests` method uses `stream=True` and writes small chunks instead of load
 
 The `curl` implementation uses an argument list and `shell=False`. It does not construct a shell command string, which prevents the URL from being interpreted as shell syntax and reduces command-line injection risk.
 
-### `src/constants.py`
+### `src/dataset.py`
 
-Stores the shared Iris column names and species value used by the ETL modules.
+Defines the shared Iris dataset metadata in one structure: source URL, derived filenames, paths, column names, species filter, CSV headers, and the PySpark schema.
 
 ### `src/transform.py`
 

@@ -8,14 +8,12 @@ from tempfile import NamedTemporaryFile
 
 from pyspark.sql import DataFrame
 
-from ..constants import IRIS_COLUMNS
-
-DEFAULT_OUTPUT_PATH = Path("Output_dir/transform_iris.csv")
+from ..dataset import IRIS_DATASET
 
 
 def write_single_csv(
     dataframe: DataFrame,
-    output_path: Path = DEFAULT_OUTPUT_PATH,
+    output_path: Path = IRIS_DATASET.transformed_output_path,
 ) -> Path:
     """Write a Spark DataFrame as one header-containing CSV file."""
 
@@ -27,7 +25,7 @@ def write_single_csv(
     shutil.rmtree(temporary_dir, ignore_errors=True)
     try:
         (
-            dataframe.select(*IRIS_COLUMNS)
+            dataframe.select(*IRIS_DATASET.columns)
             .coalesce(1)
             .write.mode("overwrite")
             .option("header", "true")

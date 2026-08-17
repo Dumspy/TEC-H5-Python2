@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
+from .dataset import IRIS_DATASET
 from .extract import extract
 from .load import (
     query_transformed_data,
@@ -19,17 +18,17 @@ from .visualization import (
     create_scatter_plot,
 )
 
-INPUT_DIR = Path("Input_dir")
-OUTPUT_DIR = Path("Output_dir")
-PLOTS_DIR = OUTPUT_DIR / "plots"
-
 
 def main() -> None:
     """Run Extract -> Transform -> Load -> Visualize."""
 
     # requests is selected for cross-platform HTTPS, streaming, timeouts,
     # retries, and avoiding shell execution.
-    input_path = extract(method="requests", destination_dir=INPUT_DIR)
+    input_path = extract(
+        method="requests",
+        url=IRIS_DATASET.source_url,
+        destination_dir=IRIS_DATASET.input_dir,
+    )
     database_config = get_database_config()
     spark = create_spark_session()
 
@@ -37,15 +36,24 @@ def main() -> None:
         transformed = transform_iris(spark, input_path)
         transformed_csv_path = write_transformed_csv(
             transformed,
-            output_path=OUTPUT_DIR / "transform_iris.csv",
+            output_path=IRIS_DATASET.transformed_output_path,
         )
         table_name = write_transformed_mysql(transformed, database_config)
 
         # Plot data comes from SQL queries against MySQL.
         database_data = query_transformed_data(database_config)
-        scatter_plot_path = create_scatter_plot(database_data, PLOTS_DIR)
-        histogram_path = create_petal_width_histogram(database_data, PLOTS_DIR)
-        boxplot_path = create_measurement_boxplots(database_data, PLOTS_DIR)
+        scatter_plot_path = create_scatter_plot(
+            database_data,
+            IRIS_DATASET.plots_dir,
+        )
+        histogram_path = create_petal_width_histogram(
+            database_data,
+            IRIS_DATASET.plots_dir,
+        )
+        boxplot_path = create_measurement_boxplots(
+            database_data,
+            IRIS_DATASET.plots_dir,
+        )
 
         print(f"Transformed CSV written to: {transformed_csv_path}")
         print(f"MySQL table populated: {table_name}")

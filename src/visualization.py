@@ -10,9 +10,7 @@ matplotlib.use("Agg")  # Save plots consistently in terminal environments.
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from .constants import MEASUREMENT_COLUMNS
-
-DEFAULT_PLOTS_DIR = Path("Output_dir/plots")
+from .dataset import IRIS_DATASET
 
 
 def _save_figure(
@@ -30,7 +28,7 @@ def _save_figure(
 
 def create_scatter_plot(
     dataframe: pd.DataFrame,
-    output_dir: Path = DEFAULT_PLOTS_DIR,
+    output_dir: Path = IRIS_DATASET.plots_dir,
 ) -> Path:
     """Create a sepal-length/petal-length scatter plot."""
 
@@ -52,7 +50,7 @@ def create_scatter_plot(
 
 def create_petal_width_histogram(
     dataframe: pd.DataFrame,
-    output_dir: Path = DEFAULT_PLOTS_DIR,
+    output_dir: Path = IRIS_DATASET.plots_dir,
 ) -> Path:
     """Create a ten-bin histogram for petal width."""
 
@@ -72,13 +70,18 @@ def create_petal_width_histogram(
 
 def create_measurement_boxplots(
     dataframe: pd.DataFrame,
-    output_dir: Path = DEFAULT_PLOTS_DIR,
+    output_dir: Path = IRIS_DATASET.plots_dir,
 ) -> Path:
     """Create one boxplot with the four measurements sharing a single axis."""
 
     figure, axis = plt.subplots(figsize=(10, 6))
-    data = [dataframe[column].dropna() for column in MEASUREMENT_COLUMNS]
-    labels = [column.replace("_", " ").title() for column in MEASUREMENT_COLUMNS]
+    data = [
+        dataframe[column].dropna() for column in IRIS_DATASET.measurement_columns
+    ]
+    labels = [
+        column.replace("_", " ").title()
+        for column in IRIS_DATASET.measurement_columns
+    ]
     axis.boxplot(data, tick_labels=labels)
     axis.set_ylabel("Measurement")
     axis.set_title("Iris-setosa: Measurement Distributions")

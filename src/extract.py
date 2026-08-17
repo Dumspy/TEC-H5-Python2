@@ -13,11 +13,8 @@ from urllib.parse import SplitResult, unquote, urlsplit
 import requests
 import wget
 
-from .constants import IRIS_COLUMNS
+from .dataset import IRIS_DATASET
 
-SOURCE_URL = "https://raw.githubusercontent.com/jbrownlee/Datasets/master/iris.csv"
-CSV_HEADERS = ",".join(IRIS_COLUMNS)
-DEFAULT_INPUT_DIR = Path("Input_dir")
 CHUNK_SIZE = 64 * 1024
 MAX_ATTEMPTS = 3
 
@@ -50,7 +47,7 @@ def _finalize_download(raw_path: Path, destination: Path) -> Path:
         delete=False,
     ) as output:
         output_path = Path(output.name)
-        output.write(f"{CSV_HEADERS}\n".encode())
+        output.write(f"{IRIS_DATASET.csv_headers}\n".encode())
         with raw_path.open("rb") as source:
             shutil.copyfileobj(source, output, length=CHUNK_SIZE)
 
@@ -91,8 +88,8 @@ def _run_download(
 
 
 def download_with_requests(
-    url: str = SOURCE_URL,
-    destination_dir: Path = DEFAULT_INPUT_DIR,
+    url: str = IRIS_DATASET.source_url,
+    destination_dir: Path = IRIS_DATASET.input_dir,
 ) -> Path:
     """Download with streaming requests, TLS verification, and timeouts."""
 
@@ -114,8 +111,8 @@ def download_with_requests(
 
 
 def download_with_wget(
-    url: str = SOURCE_URL,
-    destination_dir: Path = DEFAULT_INPUT_DIR,
+    url: str = IRIS_DATASET.source_url,
+    destination_dir: Path = IRIS_DATASET.input_dir,
 ) -> Path:
     """Download with the Python wget package."""
 
@@ -130,8 +127,8 @@ def download_with_wget(
 
 
 def download_with_curl(
-    url: str = SOURCE_URL,
-    destination_dir: Path = DEFAULT_INPUT_DIR,
+    url: str = IRIS_DATASET.source_url,
+    destination_dir: Path = IRIS_DATASET.input_dir,
 ) -> Path:
     """Download with curl without invoking a shell."""
 
@@ -171,8 +168,8 @@ def download_with_curl(
 
 def extract(
     method: str = "requests",
-    url: str = SOURCE_URL,
-    destination_dir: Path = DEFAULT_INPUT_DIR,
+    url: str = IRIS_DATASET.source_url,
+    destination_dir: Path = IRIS_DATASET.input_dir,
 ) -> Path:
     """Run the selected extraction method."""
 
