@@ -27,6 +27,24 @@ src/transform.py     PySpark filter: species == Iris-setosa
                  Matplotlib visualizations
 ```
 
+## Project structure
+
+```text
+src/
+├── __init__.py
+├── main.py
+├── extract.py
+├── transform.py
+├── load.py
+├── visualization.py
+├── constants.py
+└── lib/
+    ├── __init__.py
+    ├── mysql.py
+    ├── spark.py
+    └── spark_io.py
+```
+
 ## Requirements
 
 The project uses:
@@ -172,7 +190,7 @@ Stores the shared Iris column names and species value used by the ETL modules.
 
 ### `src/transform.py`
 
-Uses a local PySpark session with an explicit schema:
+Receives a local PySpark session and applies an explicit schema:
 
 ```text
 sepal_length: double
@@ -188,22 +206,21 @@ The transformation keeps only rows where:
 species == Iris-setosa
 ```
 
-The Spark session is also configured with MySQL Connector/J 8.4.0 so Spark can write the DataFrame through JDBC.
-
 ### `src/load.py`
 
-The CSV loader produces one named CSV file instead of leaving only Spark's generated `part-*.csv` directory.
+Provides the assignment-facing load functions while delegating CSV and MySQL details to the reusable `lib` modules.
 
-The MySQL loader:
+### `src/lib/spark.py`
 
-1. Connects to the database initialized by Docker Compose.
-2. Executes `CREATE TABLE IF NOT EXISTS iris_setosa`.
-3. Executes `TRUNCATE TABLE iris_setosa`.
-4. Loads the transformed PySpark DataFrame through JDBC.
+Creates the local Spark session and configures the MySQL Connector/J 8.4.0 package for JDBC.
 
-This means a repeated application run replaces the table contents instead of appending duplicate data.
+### `src/lib/spark_io.py`
 
-The same module queries MySQL using `mysql-connector-python` and returns a pandas DataFrame for visualization.
+Writes a Spark DataFrame as one named CSV file, handling Spark's generated `part-*.csv` output and temporary-file cleanup.
+
+### `src/lib/mysql.py`
+
+Owns database configuration, MySQL connections, table creation, truncation, JDBC loading, and SQL queries. A repeated application run replaces the table contents instead of appending duplicate data.
 
 ### `src/visualization.py`
 
@@ -236,7 +253,7 @@ Coordinates the complete Extract -> Transform -> Load -> Visualize process and s
 | Learning objective | Implementation |
 |---|---|
 | ETL pipeline | `main.py` coordinates Extract, Transform, Load, and visualization stages. |
-| Reusable Python modules | Functionality is separated into `extract.py`, `transform.py`, `load.py`, and `visualization.py`. |
+| Reusable Python modules | ETL responsibilities are separated into the main modules, with shared infrastructure in `src/lib/`. |
 | Secure internet extraction | HTTPS, certificate verification, streaming, timeouts, retries, and safe subprocess usage. |
 | Data processing | PySpark DataFrames and filtering are used for transformation. |
 | Cryptographic protection | HTTPS/TLS protects the data while it is transported from GitHub. |

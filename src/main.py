@@ -6,12 +6,13 @@ from pathlib import Path
 
 from .extract import extract
 from .load import (
-    get_database_config,
     query_transformed_data,
     write_transformed_csv,
     write_transformed_mysql,
 )
-from .transform import create_spark_session, transform_iris
+from .lib.mysql import get_database_config
+from .lib.spark import create_spark_session
+from .transform import transform_iris
 from .visualization import (
     create_measurement_boxplots,
     create_petal_width_histogram,
