@@ -7,7 +7,7 @@ import subprocess
 import time
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Callable
+from typing import Callable, Literal, TypeAlias
 from urllib.parse import SplitResult, unquote, urlsplit
 
 import requests
@@ -17,6 +17,7 @@ from .dataset import IRIS_DATASET
 
 CHUNK_SIZE = 64 * 1024
 MAX_ATTEMPTS = 3
+ExtractionMethod: TypeAlias = Literal["requests", "wget", "curl"]
 
 
 def _validate_url(url: str) -> SplitResult:
@@ -59,7 +60,7 @@ def _finalize_download(raw_path: Path, destination: Path) -> Path:
 def _run_download(
     download_once: Callable[[Path], None],
     destination: Path,
-    method: str,
+    method: ExtractionMethod,
 ) -> Path:
     """Retry a downloader and replace the destination only on success."""
 
@@ -167,7 +168,7 @@ def download_with_curl(
 
 
 def extract(
-    method: str = "requests",
+    method: ExtractionMethod = "requests",
     url: str = IRIS_DATASET.source_url,
     destination_dir: Path = IRIS_DATASET.input_dir,
 ) -> Path:
