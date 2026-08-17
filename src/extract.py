@@ -71,6 +71,23 @@ def download_with_curl(url: str, raw_path: Path) -> None:
     )
 
 
+def _prepend_headers(path: Path) -> None:
+    """Prepend headers in place, shifting the downloaded data backwards."""
+
+    headers = f"{IRIS_DATASET.csv_headers}\n".encode()
+    with path.open("r+b") as file:
+        file.seek(0, 2)
+        size = file.tell()
+        for end in range(size, 0, -CHUNK_SIZE):
+            start = max(0, end - CHUNK_SIZE)
+            file.seek(start)
+            chunk = file.read(end - start)
+            file.seek(start + len(headers))
+            file.write(chunk)
+        file.seek(0)
+        file.write(headers)
+
+
 def extract(
     method: ExtractionMethod = "requests",
     url: str = IRIS_DATASET.source_url,
@@ -84,8 +101,7 @@ def extract(
         "curl": download_with_curl,
     }
     if method not in methods:
-        available = ", ".join(methods)
-        raise ValueError(f"Unknown extraction method; choose one of {available}")
+        raise ValueError("Unknown extraction method")
 
     parsed_url = urlsplit(url)
     if parsed_url.scheme.lower() != "https" or not parsed_url.netloc:
@@ -93,39 +109,25 @@ def extract(
 
     destination_dir.mkdir(parents=True, exist_ok=True)
     destination = destination_dir / IRIS_DATASET.filename_for(url)
-    raw_path: Path | None = None
-    output_path: Path | None = None
+    temporary_path: Path | None = None
 
     try:
         with NamedTemporaryFile(
             prefix=f".{destination.name}.",
-            suffix=".download",
-            dir=destination.parent,
-            delete=False,
-        ) as temporary:
-            raw_path = Path(temporary.name)
-
-        methods[method](url, raw_path)
-        if raw_path.stat().st_size == 0:
-            raise RuntimeError("The downloaded dataset is empty")
-
-        with NamedTemporaryFile(
-            mode="wb",
-            prefix=f".{destination.name}.",
             suffix=".tmp",
             dir=destination.parent,
             delete=False,
-        ) as output:
-            output_path = Path(output.name)
-            output.write(f"{IRIS_DATASET.csv_headers}\n".encode())
-            with raw_path.open("rb") as source:
-                shutil.copyfileobj(source, output, length=CHUNK_SIZE)
+        ) as temporary:
+            temporary_path = Path(temporary.name)
 
-        output_path.replace(destination)
-        output_path = None
+        methods[method](url, temporary_path)
+        if temporary_path.stat().st_size == 0:
+            raise RuntimeError("The downloaded dataset is empty")
+
+        _prepend_headers(temporary_path)
+        temporary_path.replace(destination)
+        temporary_path = None
         return destination
     finally:
-        if raw_path is not None:
-            raw_path.unlink(missing_ok=True)
-        if output_path is not None:
-            output_path.unlink(missing_ok=True)
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
