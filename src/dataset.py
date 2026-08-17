@@ -26,12 +26,15 @@ class DatasetDefinition:
     )
     output_prefix: str = "transform_"
 
-    @property
-    def filename(self) -> str:
-        filename = Path(unquote(urlsplit(self.source_url).path)).name
+    def filename_for(self, url: str) -> str:
+        filename = Path(unquote(urlsplit(url).path)).name
         if not filename:
             raise ValueError("The dataset URL does not contain a filename")
         return filename
+
+    @property
+    def filename(self) -> str:
+        return self.filename_for(self.source_url)
 
     @property
     def columns(self) -> tuple[str, ...]:

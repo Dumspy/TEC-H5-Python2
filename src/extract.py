@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Callable, Literal, TypeAlias
-from urllib.parse import SplitResult, unquote, urlsplit
+from urllib.parse import SplitResult, urlsplit
 
 import requests
 import wget
@@ -18,6 +18,7 @@ from .dataset import IRIS_DATASET
 CHUNK_SIZE = 64 * 1024
 MAX_ATTEMPTS = 3
 ExtractionMethod: TypeAlias = Literal["requests", "wget", "curl"]
+DownloadFunction: TypeAlias = Callable[[Path], None]
 
 
 def _validate_url(url: str) -> SplitResult:
@@ -27,16 +28,12 @@ def _validate_url(url: str) -> SplitResult:
     return parsed
 
 
-def _destination_path(url: str, directory: Path) -> Path:
-    parsed = _validate_url(url)
-    filename = Path(unquote(parsed.path)).name
-    if not filename or filename in {".", ".."}:
-        raise ValueError("The dataset URL does not contain a filename")
+def _destination(url: str, directory: Path) -> Path:
     directory.mkdir(parents=True, exist_ok=True)
-    return directory / filename
+    return directory / IRIS_DATASET.filename_for(url)
 
 
-def _finalize_download(raw_path: Path, destination: Path) -> Path:
+def _finalize(raw_path: Path, destination: Path) -> Path:
     if not raw_path.is_file() or raw_path.stat().st_size == 0:
         raise RuntimeError("The downloaded dataset is empty")
 
@@ -57,14 +54,16 @@ def _finalize_download(raw_path: Path, destination: Path) -> Path:
     return destination
 
 
-def _run_download(
-    download_once: Callable[[Path], None],
-    destination: Path,
+def _download(
     method: ExtractionMethod,
+    url: str,
+    directory: Path,
+    download_once: DownloadFunction,
 ) -> Path:
-    """Retry a downloader and replace the destination only on success."""
-
+    _validate_url(url)
+    destination = _destination(url, directory)
     last_error: Exception | None = None
+
     for attempt in range(1, MAX_ATTEMPTS + 1):
         raw_path: Path | None = None
         try:
@@ -75,9 +74,8 @@ def _run_download(
                 delete=False,
             ) as temporary:
                 raw_path = Path(temporary.name)
-
             download_once(raw_path)
-            return _finalize_download(raw_path, destination)
+            return _finalize(raw_path, destination)
         except Exception as error:
             last_error = error
             if raw_path is not None:
@@ -92,13 +90,10 @@ def download_with_requests(
     url: str = IRIS_DATASET.source_url,
     destination_dir: Path = IRIS_DATASET.input_dir,
 ) -> Path:
-    """Download with streaming requests, TLS verification, and timeouts."""
-
-    destination = _destination_path(url, destination_dir)
+    """Download with streaming requests."""
 
     def download_once(raw_path: Path) -> None:
-        # stream, timeout, and default certificate verification protect the
-        # transfer and keep an unstable connection from hanging indefinitely.
+        # HTTPS, streaming, timeout, and default certificate verification.
         with requests.get(url, stream=True, timeout=(10, 60)) as response:
             response.raise_for_status()
             if urlsplit(response.url).scheme.lower() != "https":
@@ -108,7 +103,7 @@ def download_with_requests(
                     if chunk:
                         output.write(chunk)
 
-    return _run_download(download_once, destination, "requests")
+    return _download("requests", url, destination_dir, download_once)
 
 
 def download_with_wget(
@@ -117,14 +112,10 @@ def download_with_wget(
 ) -> Path:
     """Download with the Python wget package."""
 
-    destination = _destination_path(url, destination_dir)
-
     def download_once(raw_path: Path) -> None:
-        # URL validation, retries, and temporary-file finalization are shared
-        # with the other methods; wget exposes less timeout control.
         wget.download(url, out=str(raw_path), bar=None)
 
-    return _run_download(download_once, destination, "wget")
+    return _download("wget", url, destination_dir, download_once)
 
 
 def download_with_curl(
@@ -133,7 +124,6 @@ def download_with_curl(
 ) -> Path:
     """Download with curl without invoking a shell."""
 
-    destination = _destination_path(url, destination_dir)
     curl_path = shutil.which("curl")
     if curl_path is None:
         raise RuntimeError("curl is not available on PATH")
@@ -152,8 +142,6 @@ def download_with_curl(
             "=https",
             "--retry",
             "2",
-            "--retry-delay",
-            "1",
             "--connect-timeout",
             "10",
             "--max-time",
@@ -164,7 +152,7 @@ def download_with_curl(
         ]
         subprocess.run(command, check=True, shell=False, timeout=180)
 
-    return _run_download(download_once, destination, "curl")
+    return _download("curl", url, destination_dir, download_once)
 
 
 def extract(
