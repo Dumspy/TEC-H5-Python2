@@ -11,3 +11,6 @@ dependencies = [
     "requests>=2.34.2",
     "wget>=3.2",
 ]
+
+[tool.basedpyright]
+reportUnusedCallResult = false

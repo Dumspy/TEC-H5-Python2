@@ -37,18 +37,30 @@ def main() -> None:
 
     try:
         transformed_dataframe = transform_iris(spark, input_path)
-        write_transformed_csv(
+        transformed_csv_path = write_transformed_csv(
             transformed_dataframe,
             output_path=OUTPUT_DIR / "transform_iris.csv",
         )
-        write_transformed_mysql(transformed_dataframe, database_config)
+        table_name = write_transformed_mysql(transformed_dataframe, database_config)
 
         # Visualizations deliberately use data queried from MySQL rather than
         # the CSV or the pre-load Spark DataFrame.
         database_dataframe = query_transformed_data(database_config)
-        create_scatter_plot(database_dataframe, OUTPUT_DIR / "plots")
-        create_petal_width_histogram(database_dataframe, OUTPUT_DIR / "plots")
-        create_measurement_boxplots(database_dataframe, OUTPUT_DIR / "plots")
+        scatter_plot_path = create_scatter_plot(
+            database_dataframe, OUTPUT_DIR / "plots"
+        )
+        histogram_path = create_petal_width_histogram(
+            database_dataframe, OUTPUT_DIR / "plots"
+        )
+        boxplot_path = create_measurement_boxplots(
+            database_dataframe, OUTPUT_DIR / "plots"
+        )
+
+        print(f"Transformed CSV written to: {transformed_csv_path}")
+        print(f"MySQL table populated: {table_name}")
+        print(f"Scatter plot: {scatter_plot_path}")
+        print(f"Histogram: {histogram_path}")
+        print(f"Boxplots: {boxplot_path}")
     finally:
         spark.stop()
 

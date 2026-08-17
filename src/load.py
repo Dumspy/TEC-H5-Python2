@@ -184,7 +184,7 @@ def query_transformed_data(
     finally:
         connection.close()
 
-    return pd.DataFrame(rows, columns=EXPECTED_COLUMNS)
+    return pd.DataFrame.from_records(rows, columns=EXPECTED_COLUMNS)
 
 
 def write_transformed_mysql(
