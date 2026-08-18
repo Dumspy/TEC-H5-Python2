@@ -1,23 +1,21 @@
-"""MySQL configuration, table management, loading, and queries."""
+"""MySQL configuration and encrypted-column storage."""
 
 from __future__ import annotations
 
 import os
 import re
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import cast
 
 import mysql.connector
-import pandas as pd
 from dotenv import load_dotenv
 from mysql.connector.connection import MySQLConnection
-from pyspark.sql import DataFrame
 
 from ..dataset import IRIS_DATASET
 
-DEFAULT_TABLE = "iris_setosa"
+DEFAULT_TABLE = "iris_setosa_encrypted"
 _IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -31,21 +29,6 @@ class DatabaseConfig:
     user: str
     password: str
     table: str
-
-    @property
-    def jdbc_url(self) -> str:
-        return (
-            f"jdbc:mysql://{self.host}:{self.port}/{self.database}"
-            "?serverTimezone=UTC&allowPublicKeyRetrieval=true&useSSL=false"
-        )
-
-    @property
-    def jdbc_properties(self) -> dict[str, str]:
-        return {
-            "user": self.user,
-            "password": self.password,
-            "driver": "com.mysql.cj.jdbc.Driver",
-        }
 
 
 def get_database_config() -> DatabaseConfig:
@@ -86,15 +69,18 @@ def _connection(config: DatabaseConfig) -> Generator[MySQLConnection, None, None
         connection.close()
 
 
-def _ensure_table(config: DatabaseConfig) -> None:
+def ensure_encrypted_table(config: DatabaseConfig) -> None:
+    """Create and clear the Part 2 table without touching the Part 1 table."""
+
     table = _table_name(config.table, quoted=True)
     create_sql = f"""
         CREATE TABLE IF NOT EXISTS {table} (
-            sepal_length DOUBLE NOT NULL,
-            sepal_width DOUBLE NOT NULL,
-            petal_length DOUBLE NOT NULL,
-            petal_width DOUBLE NOT NULL,
-            species VARCHAR(50) NOT NULL
+            id BIGINT AUTO_INCREMENT PRIMARY KEY,
+            sepal_length VARBINARY(255) NOT NULL,
+            sepal_width VARBINARY(255) NOT NULL,
+            petal_length VARBINARY(255) NOT NULL,
+            petal_width VARBINARY(255) NOT NULL,
+            species VARBINARY(255) NOT NULL
         )
     """
 
@@ -108,42 +94,56 @@ def _ensure_table(config: DatabaseConfig) -> None:
             cursor.close()
 
 
-def write_dataframe(
-    dataframe: DataFrame,
+def write_encrypted_rows(
+    rows: Iterable[tuple[bytes, ...]],
     config: DatabaseConfig | None = None,
+    batch_size: int = 100,
 ) -> str:
-    """Create or refresh the configured table with a Spark DataFrame."""
+    """Insert encrypted rows into the separate Part 2 table in batches."""
 
     config = config or get_database_config()
-    _ensure_table(config)
-    dataframe.select(*IRIS_DATASET.columns).write.mode("append").jdbc(
-        url=config.jdbc_url,
-        table=_table_name(config.table),
-        properties=config.jdbc_properties,
-    )
-    return config.table
-
-
-def query_dataframe(
-    config: DatabaseConfig | None = None,
-) -> pd.DataFrame:
-    """Read the configured table into pandas."""
-
-    config = config or get_database_config()
+    ensure_encrypted_table(config)
     table = _table_name(config.table, quoted=True)
-    columns = ", ".join(IRIS_DATASET.columns)
-    query = f"""
-        SELECT {columns}
-        FROM {table}
-        ORDER BY sepal_length, sepal_width, petal_length, petal_width
+    insert_sql = f"""
+        INSERT INTO {table}
+        (sepal_length, sepal_width, petal_length, petal_width, species)
+        VALUES (%s, %s, %s, %s, %s)
     """
 
     with _connection(config) as connection:
         cursor = connection.cursor()
         try:
-            cursor.execute(query)
-            rows = cursor.fetchall()
+            batch: list[tuple[bytes, ...]] = []
+            for row in rows:
+                batch.append(row)
+                if len(batch) >= batch_size:
+                    cursor.executemany(insert_sql, batch)
+                    batch.clear()
+            if batch:
+                cursor.executemany(insert_sql, batch)
+            connection.commit()
         finally:
             cursor.close()
+    return config.table
 
-    return pd.DataFrame.from_records(rows, columns=IRIS_DATASET.columns)
+
+def query_encrypted_batches(
+    config: DatabaseConfig | None = None,
+    batch_size: int = 100,
+) -> Generator[tuple[bytes, ...], None, None]:
+    """Yield encrypted columns from MySQL in batches for decryption."""
+
+    config = config or get_database_config()
+    table = _table_name(config.table, quoted=True)
+    columns = ", ".join(IRIS_DATASET.columns)
+    query = f"SELECT {columns} FROM {table} ORDER BY id"
+
+    with _connection(config) as connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(query)
+            while batch := cursor.fetchmany(batch_size):
+                for row in batch:
+                    yield cast(tuple[bytes, ...], row)
+        finally:
+            cursor.close()
