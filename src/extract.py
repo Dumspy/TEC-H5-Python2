@@ -6,7 +6,7 @@ import shutil
 import subprocess
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Callable, Literal, TypeAlias
+from typing import Callable, Literal
 from urllib.parse import urlsplit
 
 import requests
@@ -22,6 +22,15 @@ type DownloadFunction = Callable[[str, Path], None]
 def download_with_requests(url: str, raw_path: Path) -> None:
     """Stream a dataset with requests."""
 
+    # DATA SECURITY AND DATA INTEGRITY:
+    # - requests uses Python's HTTP APIs, so it does not create a shell or
+    #   expose the URL to command-line injection.
+    # - HTTPS, certificate verification, the redirect check, and
+    #   raise_for_status() protect the transfer and reject HTTP error pages.
+    #
+    # ROBUSTNESS UNDER DOWNLOAD INTERRUPTION:
+    # - stream=True downloads small chunks and the connect/read timeout stops
+    #   a stalled connection from waiting forever.
     with requests.get(url, stream=True, timeout=(10, 60)) as response:
         response.raise_for_status()
         with raw_path.open("wb") as output:
@@ -33,6 +42,15 @@ def download_with_requests(url: str, raw_path: Path) -> None:
 def download_with_wget(url: str, raw_path: Path) -> None:
     """Download a dataset with the Python wget package."""
 
+    # DATA SECURITY AND DATA INTEGRITY:
+    # - wget is a Python library call, not a shell command, so the URL cannot
+    #   be used for command-line injection.
+    # - wget gives us less control over TLS, redirects, status codes, and
+    #   timeouts than requests, which is why it is not selected in main.py.
+    #
+    # ROBUSTNESS UNDER DOWNLOAD INTERRUPTION:
+    # - wget has fewer download controls, but extract() gives it a temporary
+    #   path and removes that file if the call fails.
     wget.download(url, out=str(raw_path), bar=None)
 
 
@@ -43,7 +61,16 @@ def download_with_curl(url: str, raw_path: Path) -> None:
     if curl_path is None:
         raise RuntimeError("curl is not available on PATH")
 
-    # Separate arguments and shell=False prevent command-line injection.
+    # DATA SECURITY AND DATA INTEGRITY:
+    # - --proto/--proto-redir keep the request and redirects on HTTPS.
+    # - The URL is a separate argument and shell=False stays enabled, so URL
+    #   characters cannot become an injected shell command.
+    # - --fail rejects HTTP errors instead of saving an error page.
+    #
+    # ROBUSTNESS UNDER DOWNLOAD INTERRUPTION:
+    # - --connect-timeout and --max-time handle stalled connections.
+    # - The shared temporary-file handling in extract() keeps partial curl
+    #   output away from the final CSV.
     subprocess.run(
         [
             curl_path,
@@ -70,7 +97,7 @@ def download_with_curl(url: str, raw_path: Path) -> None:
 
 
 def _prepend_headers(path: Path) -> None:
-    """Prepend headers in place, shifting the downloaded data backwards."""
+    """Prepend the known column headers to the downloaded file."""
 
     headers = f"{IRIS_DATASET.csv_headers}\n".encode()
     with path.open("r+b") as file:
@@ -106,6 +133,11 @@ def extract(
         raise ValueError("The dataset URL must be a valid HTTPS URL")
 
     destination_dir.mkdir(parents=True, exist_ok=True)
+    # FILE NAME AND CSV INTEGRITY:
+    # - The filename is taken from the URL using filename_for().
+    # - The downloaded source has no header row, so the column names from
+    #   IRIS_DATASET are added before the file is made available to the rest of
+    #   the pipeline.
     destination = destination_dir / IRIS_DATASET.filename_for(url)
     temporary_path: Path | None = None
 
@@ -118,6 +150,10 @@ def extract(
         ) as temporary:
             temporary_path = Path(temporary.name)
 
+        # Shared robustness for all three methods: they download to this
+        # temporary file first. The rename below is the commit point, so an
+        # interruption cannot replace valid input with partial data. The
+        # finally block removes the temporary file when a method fails.
         methods[method](url, temporary_path)
         if temporary_path.stat().st_size == 0:
             raise RuntimeError("The downloaded dataset is empty")

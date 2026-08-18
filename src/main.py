@@ -22,8 +22,27 @@ from .visualization import (
 def main() -> None:
     """Run Extract -> Transform -> Load -> Visualize."""
 
-    # requests is selected for cross-platform HTTPS, streaming, timeouts, and
-    # avoiding shell execution.
+    # I chose requests as the method used by the main pipeline.
+    #
+    # Why requests is the best choice here:
+    # - It is cross-platform and runs directly in Python, so it does not start
+    #   a shell or expose the URL to command-line injection.
+    # - HTTPS certificate verification is enabled by default. It also checks
+    #   HTTP status codes, redirects, and timeouts directly in the code.
+    # - stream=True downloads the file in small chunks instead of loading the
+    #   entire response into memory.
+    # - The shared extraction code writes to a temporary file and only renames
+    #   it after the download and headers are complete. Partial data therefore
+    #   cannot replace a valid input file.
+    #
+    # Why the other methods are not selected:
+    # - wget does not use a shell, but it gives us less control over TLS,
+    #   redirects, response errors, streaming, and timeouts.
+    # - curl needs an external program to be installed. Our implementation is
+    #   safe because it passes the URL as a separate argument with shell=False.
+    #   Using shell=True or building a command string instead could allow a
+    #   malicious URL to cause command-line injection.
+
     input_path = extract(
         method="requests",
         url=IRIS_DATASET.source_url,
