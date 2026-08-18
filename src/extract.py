@@ -15,8 +15,8 @@ import wget
 from .dataset import IRIS_DATASET
 
 CHUNK_SIZE = 64 * 1024
-ExtractionMethod: TypeAlias = Literal["requests", "wget", "curl"]
-DownloadFunction: TypeAlias = Callable[[str, Path], None]
+type ExtractionMethod = Literal["requests", "wget", "curl"]
+type DownloadFunction = Callable[[str, Path], None]
 
 
 def download_with_requests(url: str, raw_path: Path) -> None:
@@ -24,8 +24,6 @@ def download_with_requests(url: str, raw_path: Path) -> None:
 
     with requests.get(url, stream=True, timeout=(10, 60)) as response:
         response.raise_for_status()
-        if urlsplit(response.url).scheme.lower() != "https":
-            raise RuntimeError("The final redirected URL is not HTTPS")
         with raw_path.open("wb") as output:
             for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
                 if chunk:
