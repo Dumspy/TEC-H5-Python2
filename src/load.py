@@ -1,4 +1,4 @@
-"""Assignment-facing load operations."""
+"""Assignment-facing encrypted load operations."""
 
 from __future__ import annotations
 
@@ -8,31 +8,57 @@ import pandas as pd
 from pyspark.sql import DataFrame
 
 from .dataset import IRIS_DATASET
-from .lib.mysql import DatabaseConfig, query_dataframe, write_dataframe
-from .lib.spark_io import write_single_csv
+from .lib.mysql import (
+    DatabaseConfig,
+    query_encrypted_batches,
+    write_encrypted_rows,
+)
+from .lib.serialization import (
+    decrypted_rows,
+    encrypted_rows,
+)
+from .lib.serialization import (
+    write_encrypted_csv as write_csv_payload,
+)
+from .security import EncryptionMethod
 
 
-def write_transformed_csv(
+def write_encrypted_csv(
     dataframe: DataFrame,
-    output_path: Path = IRIS_DATASET.transformed_output_path,
+    method: EncryptionMethod,
+    key: bytes,
+    output_path: Path = IRIS_DATASET.encrypted_output_path,
 ) -> Path:
-    """Write the transformed DataFrame to one CSV file."""
+    """Write the transformed columns encrypted to a CSV file."""
 
-    return write_single_csv(dataframe, output_path)
+    return write_csv_payload(dataframe, output_path, method, key)
 
 
-def write_transformed_mysql(
+def write_encrypted_mysql(
     dataframe: DataFrame,
+    method: EncryptionMethod,
+    key: bytes,
     config: DatabaseConfig | None = None,
 ) -> str:
-    """Create or refresh the MySQL table with the transformed DataFrame."""
+    """Encrypt transformed columns and store them in MySQL batches."""
 
-    return write_dataframe(dataframe, config)
+    return write_encrypted_rows(encrypted_rows(dataframe, method, key), config)
 
 
-def query_transformed_data(
+def query_decrypted_data(
+    method: EncryptionMethod,
+    key: bytes,
     config: DatabaseConfig | None = None,
+    batch_size: int = 100,
 ) -> pd.DataFrame:
-    """Read transformed rows from MySQL for visualization."""
+    """Read encrypted MySQL columns in batches and decrypt them for plotting."""
 
-    return query_dataframe(config)
+    rows = decrypted_rows(
+        query_encrypted_batches(config, batch_size),
+        method,
+        key,
+    )
+    dataframe = pd.DataFrame.from_records(rows, columns=IRIS_DATASET.columns)
+    for column in IRIS_DATASET.measurement_columns:
+        dataframe[column] = pd.to_numeric(dataframe[column])
+    return dataframe

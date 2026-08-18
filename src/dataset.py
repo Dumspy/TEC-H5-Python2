@@ -53,6 +53,10 @@ class DatasetDefinition:
         return self.output_dir / f"{self.output_prefix}{self.filename}"
 
     @property
+    def encrypted_output_path(self) -> Path:
+        return self.output_dir / f"{self.output_prefix}{self.filename}.enc"
+
+    @property
     def plots_dir(self) -> Path:
         return self.output_dir / "plots"
 
