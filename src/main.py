@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from .dataset import IRIS_DATASET
 from .extract import extract
+from .lib.mysql import get_database_config
+from .lib.spark import create_spark_session
 from .load import (
     query_transformed_data,
     write_transformed_csv,
     write_transformed_mysql,
 )
-from .lib.mysql import get_database_config
-from .lib.spark import create_spark_session
 from .transform import transform_iris
 from .visualization import (
     create_measurement_boxplots,

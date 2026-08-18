@@ -10,9 +10,9 @@ from dataclasses import dataclass
 from typing import cast
 
 import mysql.connector
-from mysql.connector.connection import MySQLConnection
 import pandas as pd
 from dotenv import load_dotenv
+from mysql.connector.connection import MySQLConnection
 from pyspark.sql import DataFrame
 
 from ..dataset import IRIS_DATASET
